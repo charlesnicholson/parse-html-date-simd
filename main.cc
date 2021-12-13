@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cinttypes>
+#include <ctime>
 
 void p256_chars(char const *s, __m256i in) {
   uint8_t v[32];
@@ -42,15 +43,12 @@ void p256_hex_u32(char const *s, __m256i in) {
 alignas(32) static char s_months1_str[] = "Jan Feb Mar Apr May Jun Jul Aug ";
 alignas(32) static char s_months2_str[] = "Sep Oct Nov Dec XXXXXXXXXXXXXXXX";
 
-int main(int, char const *[]) {
-  alignas(32) char date_str[32] = "Mon, 09 Mar 2020 08:13:24 GMT";
-
-  __m256i const date = _mm256_load_si256(reinterpret_cast<__m256i*>(date_str));
-
-  __m256i const months1 = _mm256_load_si256(reinterpret_cast<__m256i*>(s_months1_str));
-  __m256i const months2 = _mm256_load_si256(reinterpret_cast<__m256i*>(s_months2_str));
-  __m256i const month_permute = _mm256_set_epi32(2, 2, 2, 2, 2, 2, 2, 2);
-  __m256i const month_splat = _mm256_permutevar8x32_epi32(date, month_permute);
+void date_from_str(char const *s, struct tm *out_tm) {
+  __m256i const date = _mm256_load_si256(reinterpret_cast<__m256i const*>(s));
+  __m256i const months1 = _mm256_load_si256(reinterpret_cast<__m256i const*>(s_months1_str));
+  __m256i const months2 = _mm256_load_si256(reinterpret_cast<__m256i const*>(s_months2_str));
+  __m256i const month_splat =
+    _mm256_permutevar8x32_epi32(date, _mm256_set_epi32(2, 2, 2, 2, 2, 2, 2, 2));
   __m256i const m1_sel = _mm256_sub_epi32(month_splat, months1);
   __m256i const m2_sel = _mm256_sub_epi32(month_splat, months2);
   __m256i const u32_8 = _mm256_set_epi32(8, 8, 8, 8, 8, 8, 8, 8);
@@ -74,27 +72,47 @@ int main(int, char const *[]) {
                                                  zm, zm, zm, zm, zm, zm, zm, zm,
                                                  12,  8,  4,  0, zm, zm, zm, zm));
 
-  __m256i const ms_bytes = // each month gets a byte, the current month is 0x00
+  __m256i const m1_2_bytes = // Compress month bytes into 0-16
     _mm256_permutevar8x32_epi32(_mm256_add_epi32(m1_0_32, m2_32_64),
-                                _mm256_set_epi32(7, 7, 7, 7, 5, 4, 1, 0));
+                                _mm256_set_epi32(7, 7, 7, 7, 5, 1, 4, 0));
 
-  __m256i const ms_bytes_00_FF = _mm256_cmpeq_epi8(ms_bytes, _mm256_set1_epi64x(0));
+  __m256i const ms_bytes_00_FF = _mm256_cmpeq_epi8(m1_2_bytes, _mm256_set1_epi64x(0));
   __m128i const ms_bytes_00_FF_128 = _mm256_castsi256_si128(ms_bytes_00_FF);
 
-  int64_t const ms_bytes_64_low = _mm_extract_epi64(ms_bytes_00_FF_128, 0);
+  int64_t const ms_bytes_64_lo = _mm_extract_epi64(ms_bytes_00_FF_128, 0);
   int64_t const ms_bytes_64_hi = _mm_extract_epi64(ms_bytes_00_FF_128, 1);
-  int const index_low = ms_bytes_64_low ? __builtin_clzll(ms_bytes_64_low) : 0;
-  int const index_hi = ms_bytes_64_hi ? __builtin_clzll(ms_bytes_64_hi) : 0;
+  int const mday_lo = ms_bytes_64_lo ? (64 - __builtin_clzll(ms_bytes_64_lo)) / 8 : 0;
+  int const mday_hi = ms_bytes_64_hi ? 8 + ((64 - __builtin_clzll(ms_bytes_64_hi)) / 8) : 0;
+  out_tm->tm_mday = mday_lo + mday_hi;
 
-  p256_chars(  "date:       ", date);
-  p256_chars(  "months1:    ", months1);
-  p256_chars(  "months2:    ", months2);
-  p256_chars(  "splat:      ", month_splat);
-//  p256_hex_u8( "months:     ", ms_bytes);
+  //p256_chars(  "date:       ", date);
+  //p256_chars(  "months1:    ", months1);
+  //p256_chars(  "months2:    ", months2);
+  //p256_chars(  "splat:      ", month_splat);
+  //p256_hex_u8( "m1_sel:     ", m1_sel);
+  //p256_hex_u8( "m1_sum8:    ", m1_sum8);
+  //p256_hex_u8( "m1_0_32:    ", m1_0_32);
+  //p256_hex_u8( "m2_sel:     ", m2_sel);
+  //p256_hex_u8( "m2_sum8:    ", m2_sum8);
+  //p256_hex_u8( "m2_32_64:   ", m2_32_64);
+  //p256_hex_u8( "m1_2_bytes: ", m1_2_bytes);
   p256_hex_u8( "months 0/1: ", ms_bytes_00_FF);
-  printf("low_index: %i\n", index_low);
-  printf("hi_index: %i\n", index_hi);
-  printf("low: 0x%.16" PRIx64 "\n", ms_bytes_64_low);
-  printf("hi:  0x%.16" PRIx64 "\n", ms_bytes_64_hi);
+  //printf("mday_lo: %i\n", mday_lo);
+  //printf("mday_hi: %i\n", mday_hi);
+  //printf("low: 0x%.16" PRIx64 "\n", ms_bytes_64_lo);
+  //printf("hi:  0x%.16" PRIx64 "\n", ms_bytes_64_hi);
+}
+
+int main(int, char const *[]) {
+  alignas(32) char date_str1[32] = "Mon, 09 Mar 2020 08:13:24 GMT";
+  alignas(32) char date_str2[32] = "Mon, 13 Dec 2021 08:13:24 GMT";
+
+  struct tm dt;
+  date_from_str(date_str1, &dt);
+  printf("tm.tm_mday: %d\n", dt.tm_mday);
+
+  date_from_str(date_str2, &dt);
+  printf("tm.tm_mday: %d\n", dt.tm_mday);
+
   return 0;
 }
