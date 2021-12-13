@@ -1,6 +1,7 @@
 #include <immintrin.h>
 #include <cstdio>
 #include <cstring>
+#include <cinttypes>
 
 void p256_chars(char const *s, __m256i in) {
   uint8_t v[32];
@@ -78,6 +79,12 @@ int main(int, char const *[]) {
                                 _mm256_set_epi32(7, 7, 7, 7, 5, 4, 1, 0));
 
   __m256i const ms_bytes_00_FF = _mm256_cmpeq_epi8(ms_bytes, _mm256_set1_epi64x(0));
+  __m128i const ms_bytes_00_FF_128 = _mm256_castsi256_si128(ms_bytes_00_FF);
+
+  int64_t const ms_bytes_64_low = _mm_extract_epi64(ms_bytes_00_FF_128, 0);
+  int64_t const ms_bytes_64_hi = _mm_extract_epi64(ms_bytes_00_FF_128, 1);
+  int const index_low = ms_bytes_64_low ? __builtin_clzll(ms_bytes_64_low) : 0;
+  int const index_hi = ms_bytes_64_hi ? __builtin_clzll(ms_bytes_64_hi) : 0;
 
   p256_chars(  "date:       ", date);
   p256_chars(  "months1:    ", months1);
@@ -85,5 +92,9 @@ int main(int, char const *[]) {
   p256_chars(  "splat:      ", month_splat);
 //  p256_hex_u8( "months:     ", ms_bytes);
   p256_hex_u8( "months 0/1: ", ms_bytes_00_FF);
+  printf("low_index: %i\n", index_low);
+  printf("hi_index: %i\n", index_hi);
+  printf("low: 0x%.16" PRIx64 "\n", ms_bytes_64_low);
+  printf("hi:  0x%.16" PRIx64 "\n", ms_bytes_64_hi);
   return 0;
 }
