@@ -40,8 +40,15 @@ void p256_hex_u32(char const *s, __m256i in) {
     v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
 }
 
+void p256_hex_u64(char const *s, __m256i in) {
+  alignas(32) uint64_t v[4];
+  memcpy(v, &in, sizeof(in));
+  printf("%s%.16" PRIx64 " %.16" PRIx64 " %.16" PRIx64 " %.16" PRIx64 "\n", s, v[0], v[1], v[2], v[3]);
+}
+
 alignas(32) static char s_months1_str[] = "Jan Feb Mar Apr May Jun Jul Aug ";
 alignas(32) static char s_months2_str[] = "Sep Oct Nov Dec XXXXXXXXXXXXXXXX";
+int8_t const zm = -127;
 
 void date_from_str(char const *s, struct tm *out_tm) {
   __m256i const date = _mm256_load_si256(reinterpret_cast<__m256i const*>(s));
@@ -57,8 +64,6 @@ void date_from_str(char const *s, struct tm *out_tm) {
   __m256i const m1_sum8 = _mm256_adds_epu16(m1_sum16, _mm256_srlv_epi32(m1_sum16, u32_8));
   __m256i const m2_sum16 = _mm256_adds_epu16(m2_sel, _mm256_srlv_epi32(m2_sel, u32_16));
   __m256i const m2_sum8 = _mm256_adds_epu16(m2_sum16, _mm256_srlv_epi32(m2_sum16, u32_8));
-
-  int8_t const zm = -127;
 
   __m256i const m1_0_32 =
     _mm256_shuffle_epi8(m1_sum8, _mm256_set_epi8(zm, zm, zm, zm, zm, zm, zm, zm,
@@ -77,13 +82,8 @@ void date_from_str(char const *s, struct tm *out_tm) {
                                 _mm256_set_epi32(7, 7, 7, 7, 5, 1, 4, 0));
 
   __m256i const ms_bytes_00_FF = _mm256_cmpeq_epi8(m1_2_bytes, _mm256_set1_epi64x(0));
-  __m128i const ms_bytes_00_FF_128 = _mm256_castsi256_si128(ms_bytes_00_FF);
-
-  int64_t const ms_bytes_64_lo = _mm_extract_epi64(ms_bytes_00_FF_128, 0);
-  int64_t const ms_bytes_64_hi = _mm_extract_epi64(ms_bytes_00_FF_128, 1);
-  int const mday_lo = ms_bytes_64_lo ? (64 - __builtin_clzll(ms_bytes_64_lo)) / 8 : 0;
-  int const mday_hi = ms_bytes_64_hi ? 8 + ((64 - __builtin_clzll(ms_bytes_64_hi)) / 8) : 0;
-  out_tm->tm_mday = mday_lo + mday_hi;
+  int const month_bits = _mm_movemask_epi8(_mm256_castsi256_si128(ms_bytes_00_FF));
+  out_tm->tm_mday = 32 - __builtin_clz(month_bits);
 
   //p256_chars(  "date:       ", date);
   //p256_chars(  "months1:    ", months1);
@@ -96,7 +96,7 @@ void date_from_str(char const *s, struct tm *out_tm) {
   //p256_hex_u8( "m2_sum8:    ", m2_sum8);
   //p256_hex_u8( "m2_32_64:   ", m2_32_64);
   //p256_hex_u8( "m1_2_bytes: ", m1_2_bytes);
-  p256_hex_u8( "months 0/1: ", ms_bytes_00_FF);
+  //p256_hex_u64( "months 0/1: ", ms_bytes_00_FF);
   //printf("mday_lo: %i\n", mday_lo);
   //printf("mday_hi: %i\n", mday_hi);
   //printf("low: 0x%.16" PRIx64 "\n", ms_bytes_64_lo);
