@@ -1,7 +1,12 @@
 #include "parse_html_date.h"
 #include <immintrin.h>
+#include <stdint.h>
 
 #if 0
+#include <stdio.h>
+#include <string.h>
+#include <inttypes.h>
+
 void p256_chars(char const *s, __m256i in) {
   uint8_t v[32];
   memcpy(v, &in, sizeof(in));
@@ -39,14 +44,14 @@ void p256_hex_u16(char const *s, __m256i in) {
 }
 
 void p256_hex_u32(char const *s, __m256i in) {
-  alignas(32) uint32_t v[8];
+  _Alignas(32) uint32_t v[8];
   memcpy(v, &in, sizeof(in));
   printf("%s%.8x %.8x %.8x %.8x %.8x %.8x %.8x %.8x\n", s,
          v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
 }
 
 void p256_hex_u64(char const *s, __m256i in) {
-  alignas(32) uint64_t v[4];
+  _Alignas(32) uint64_t v[4];
   memcpy(v, &in, sizeof(in));
   printf("%s%.16" PRIx64 " %.16" PRIx64 " %.16" PRIx64 " %.16" PRIx64 "\n",
          s, v[0], v[1], v[2], v[3]);
@@ -67,8 +72,7 @@ bool parse_html_date(char const *str, struct tm *out_tm) {
 
   // Whatever month was provided, splat it across the 256i:
   // e.g. "Aug " -> "Aug Aug Aug Aug Aug Aug Aug Aug "
-  __m256i const m_splat = _mm256_permutevar8x32_epi32(date,
-    _mm256_set_epi32(2, 2, 2, 2, 2, 2, 2, 2));
+  __m256i const m_splat = _mm256_permutevar8x32_epi32(date, _mm256_set1_epi32(2));
 
   // Create a run of 0x00 0x00 0x00 0x00 by subtracting both candidate month strings
   // from the splatted string.
@@ -82,8 +86,8 @@ bool parse_html_date(char const *str, struct tm *out_tm) {
   // Saturated adds with clamp the lead byte to 0XFF, so the only way 0x00 is possible
   // is if all 4 bytes are 0x00 == the month run we're looking for.
 
-  __m256i const u32_8 = _mm256_set_epi32(8, 8, 8, 8, 8, 8, 8, 8);
-  __m256i const u32_16 = _mm256_set_epi32(16, 16, 16, 16, 16, 16, 16, 16);
+  __m256i const u32_8 = _mm256_set1_epi32(8);
+  __m256i const u32_16 = _mm256_set1_epi32(16);
   __m256i const m1_sum16 = _mm256_adds_epu16(m1_sel, _mm256_srlv_epi32(m1_sel, u32_16));
   __m256i const m1_sum8 = _mm256_adds_epu16(m1_sum16, _mm256_srlv_epi32(m1_sum16, u32_8));
   __m256i const m2_sum16 = _mm256_adds_epu16(m2_sel, _mm256_srlv_epi32(m2_sel, u32_16));
@@ -92,17 +96,11 @@ bool parse_html_date(char const *str, struct tm *out_tm) {
   // Every fourth byte (starting at 0) is nonzero except for one.
   // Shuffle them into the four lowest bytes per lane (AVX256 shuffle can't cross lanes)
   __m256i const m1_0_32 =
-    _mm256_shuffle_epi8(m1_sum8, _mm256_set_epi8(zm, zm, zm, zm, zm, zm, zm, zm,
-                                                 zm, zm, zm, zm, 12,  8,  4,  0,
-                                                 zm, zm, zm, zm, zm, zm, zm, zm,
-                                                 zm, zm, zm, zm, 12,  8,  4,  0));
+    _mm256_shuffle_epi8(m1_sum8, _mm256_set_epi64x(0, 0xb080400, 0, 0xb080400));
 
   // Shuffle the second month search results into bytes 5-8 per lane.
   __m256i const m2_32_64 =
-    _mm256_shuffle_epi8(m2_sum8, _mm256_set_epi8(zm, zm, zm, zm, zm, zm, zm, zm,
-                                                 12,  8,  4,  0, zm, zm, zm, zm,
-                                                 zm, zm, zm, zm, zm, zm, zm, zm,
-                                                 12,  8,  4,  0, zm, zm, zm, zm));
+    _mm256_shuffle_epi8(m2_sum8, _mm256_set_epi32(0, 0, 0xb080400, 0, 0, 0, 0xb080400, 0));
 
   // Add the vectors and load the search results into bytes 0-15 of the search vector.
   __m256i const m1_2_bytes =
@@ -130,11 +128,7 @@ bool parse_html_date(char const *str, struct tm *out_tm) {
                                               zm, 0xD, zm, 0xC, zm, 0x6, zm, 0x5));
 
   // Subtract ASCII '0' to convert from ASCII to the actual number.
-  __m256i const nums =
-    _mm256_sub_epi8(num_chars, _mm256_set_epi8(0,   0, 0,   0, 0, '0', 0, '0',
-                                               0, '0', 0, '0', 0, '0', 0, '0',
-                                               0,   0, 0,   0, 0, '0', 0, '0',
-                                               0, '0', 0, '0', 0, '0', 0, '0'));
+  __m256i const nums = _mm256_subs_epu8(num_chars, _mm256_set1_epi8('0'));
 
   // Each u16 holds a digit in the 1's, 10's, 100's, or 1000's place. Multiply them up.
   __m256i const bases =
