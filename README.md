@@ -1,5 +1,5 @@
 # parse-html-date-simd
-AVX256 HTML Date Header parser
+AVX256 HTML Date Header parser. No branches. No loops. Fewer than 50 instructions. No validation.
 
 Parses well-formed Date strings a la https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Date.
 It will give you absolute garbage if the string is not well-formed exactly as described above.
