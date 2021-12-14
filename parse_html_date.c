@@ -94,11 +94,14 @@ bool parse_html_date(char const *str, struct tm *out_tm) {
 
   // Every fourth byte (starting at 0) is now nonzero except for one.
 
-  __m256i const m1_0_32 = // Shuffle first month results them into 0..3 per lane.
-    _mm256_shuffle_epi8(m1_sum8, _mm256_set_epi64x(0, 0xb080400, 0, 0xb080400));
+  // Shuffle first month results them into 0..3 per lane.
+  __m256i const m1_0_32 =
+    _mm256_shuffle_epi8(m1_sum8, _mm256_set_epi64x(0x8080808080808080, 0x808080800C080400,
+                                                   0x8080808080808080, 0x808080800C080400));
 
   __m256i const m2_32_64 = // Shuffle second month results into 5..8 per lane.
-    _mm256_shuffle_epi8(m2_sum8, _mm256_set_epi32(0, 0, 0xb080400, 0, 0, 0, 0xb080400, 0));
+    _mm256_shuffle_epi8(m2_sum8, _mm256_set_epi64x(0x8080808080808080, 0x0C08040080808080,
+                                                   0x8080808080808080, 0x0C08040080808080));
 
   __m256i const m1_2_bytes = // Load combined results into 0..15 of the search vector.
     _mm256_permutevar8x32_epi32(_mm256_add_epi32(m1_0_32, m2_32_64),
