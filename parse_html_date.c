@@ -60,7 +60,6 @@ void p256_hex_u64(char const *s, __m256i in) {
 
 _Alignas(32) static char s_m1_str[] = "Jan Feb Mar Apr May Jun Jul Aug ";
 _Alignas(32) static char s_m2_str[] = "Sep Oct Nov Dec XXXXXXXXXXXXXXXX";
-int8_t const zm = -127;
 
 bool parse_html_date(char const *str, struct tm *out_tm) {
   __m256i const date = _mm256_loadu_si256((__m256i const*)str);
@@ -93,17 +92,15 @@ bool parse_html_date(char const *str, struct tm *out_tm) {
   __m256i const m2_sum16 = _mm256_adds_epu16(m2_sel, _mm256_srlv_epi32(m2_sel, u32_16));
   __m256i const m2_sum8 = _mm256_adds_epu16(m2_sum16, _mm256_srlv_epi32(m2_sum16, u32_8));
 
-  // Every fourth byte (starting at 0) is nonzero except for one.
-  // Shuffle them into the four lowest bytes per lane (AVX256 shuffle can't cross lanes)
-  __m256i const m1_0_32 =
+  // Every fourth byte (starting at 0) is now nonzero except for one.
+
+  __m256i const m1_0_32 = // Shuffle first month results them into 0..3 per lane.
     _mm256_shuffle_epi8(m1_sum8, _mm256_set_epi64x(0, 0xb080400, 0, 0xb080400));
 
-  // Shuffle the second month search results into bytes 5-8 per lane.
-  __m256i const m2_32_64 =
+  __m256i const m2_32_64 = // Shuffle second month results into 5..8 per lane.
     _mm256_shuffle_epi8(m2_sum8, _mm256_set_epi32(0, 0, 0xb080400, 0, 0, 0, 0xb080400, 0));
 
-  // Add the vectors and load the search results into bytes 0-15 of the search vector.
-  __m256i const m1_2_bytes =
+  __m256i const m1_2_bytes = // Load combined results into 0..15 of the search vector.
     _mm256_permutevar8x32_epi32(_mm256_add_epi32(m1_0_32, m2_32_64),
                                 _mm256_set_epi32(7, 7, 7, 7, 5, 1, 4, 0));
 
@@ -120,18 +117,13 @@ bool parse_html_date(char const *str, struct tm *out_tm) {
   // Index: 0123456789abcdef0123456789abcdef
   // Text:  Mon, 13 Dec 2021 08:13:24 GMT
 
-  // Load each ascii number byte into its own u16, minding lane crossings.
-  __m256i const num_chars =
-    _mm256_shuffle_epi8(date, _mm256_set_epi8(zm,  zm, zm,  zm, zm, 0x8, zm, 0x7,
-                                              zm, 0x5, zm, 0x4, zm, 0x2, zm, 0x1,
-                                              zm,  zm, zm,  zm, zm, 0xF, zm, 0xE,
-                                              zm, 0xD, zm, 0xC, zm, 0x6, zm, 0x5));
+  __m256i const num_chars = // Each # char into its own u16, minding lane crossings.
+    _mm256_shuffle_epi8(date, _mm256_set_epi64x(0x8080808080088007, 0x8005800480028001,
+                                                0x80808080800F800E, 0x800D800C80068005));
 
-  // Subtract ASCII '0' to convert from ASCII to the actual number.
-  __m256i const nums = _mm256_subs_epu8(num_chars, _mm256_set1_epi8('0'));
+  __m256i const nums = _mm256_subs_epu8(num_chars, _mm256_set1_epi8('0')); // ASCII->num
 
-  // Each u16 holds a digit in the 1's, 10's, 100's, or 1000's place. Multiply them up.
-  __m256i const bases =
+  __m256i const bases = // Multiply each u16 by its base10 position.
     _mm256_mullo_epi16(nums, _mm256_set_epi16(0, 0, 1, 10,   1,   10, 1, 10,
                                               0, 0, 1, 10, 100, 1000, 1, 10));
 
