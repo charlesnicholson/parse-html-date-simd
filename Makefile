@@ -1,4 +1,5 @@
 SRCS := parse_html_date.c \
+		print_utils.c \
 		main.cc
 
 BUILD_DIR := build
