@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <ctime>
 
 #include <mach/mach_time.h>
 

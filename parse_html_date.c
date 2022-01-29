@@ -2,9 +2,57 @@
 
 #include <immintrin.h>
 #include <stdint.h>
+#include <time.h>
 
-_Alignas(32) static char s_m1_str[] = "Jan Feb Mar Apr May Jun Jul Aug ";
-_Alignas(32) static char s_m2_str[] = "Sep Oct Nov Dec XXXXXXXXXXXXXXXX";
+_Alignas(32) static unsigned char const s_m1_str[] = "Jan Feb Mar Apr May Jun Jul Aug ";
+_Alignas(32) static unsigned char const s_m2_str[] = "Sep Oct Nov Dec XXXXXXXXXXXXXXXX";
+
+// "Mon, 09 Mar 2020 08:13:24 GMT"
+
+_Alignas(32) static unsigned char const s_val_max_str[] = {
+   '@', '`', '`', // Day of week: uppercase, lowercase, lowercase
+   '+', // comma
+   0x31, // space
+   '/', '/', // Day of month: digit, digit
+   0x31, // space
+   '@', '`', '`', // Month: uppercase, lowercase, lowercase
+   0x31, // space
+   '/', '/', '/', '/', // Year: digit, digit, digit, digit
+   0x31, // space
+   '/', '/', // hour: digit, digit
+   '9', // colon
+   '/', '/', // minute: digit, digit
+   '9', // colon
+   '/', '/', // second: digit, digit
+   0x31, // space
+   'F', 'L', 'S', // "GMT"
+   0x00, 0x00, 0x00 // padding
+};
+
+_Alignas(32) static unsigned char const s_val_min_str[] = {
+  '[', '{', '{', // Day of week: uppercase, lowercase, lowercase
+  '-', // comma
+  '!', // space
+  ':', ':', // Day of month: digit, digit
+  '!', // space
+  '[', '{', '{', // Month: uppercase, lowercase, lowercase
+  '!', // space
+  ':', ':', ':', ':', // Year: digit, digit, digit, digit
+  '!', // space
+  ':', ':', // hour: digit, digit
+  ';', // colon
+  ':', ':', // minute: digit, digit
+  ';', // colon
+  ':', ':', // second: digit, digit
+  '!', // space
+  'H', 'N', 'U', // "GMT"
+  0x00, 0x00, 0x00 // padding
+};
+
+_Static_assert(sizeof(s_m1_str) == 33, "incorrect size");
+_Static_assert(sizeof(s_m2_str) == 33, "incorrect size");
+_Static_assert(sizeof(s_val_max_str) == 32, "incorrect size");
+_Static_assert(sizeof(s_val_min_str) == 32, "incorrect size");
 
 bool parse_html_date(char const *str, struct tm *out_tm) {
   __m256i const date = _mm256_loadu_si256((__m256i const*)str);
@@ -59,7 +107,7 @@ bool parse_html_date(char const *str, struct tm *out_tm) {
   int const month_bits = _mm_movemask_epi8(_mm256_castsi256_si128(ms_bytes_00_FF));
 
   // The first bit set from the bottom is the index of the month.
-  out_tm->tm_mon = 32 - __builtin_clz(month_bits);
+  out_tm->tm_mon = month_bits ? (32 - __builtin_clz(month_bits)) : 0;
 
   // Parse the numbers out of the ASCII string.
   // Index: 0123456789abcdef0123456789abcdef
@@ -90,5 +138,5 @@ bool parse_html_date(char const *str, struct tm *out_tm) {
   out_tm->tm_sec = u16s[2];
   out_tm->tm_mday = u16s[4];
   out_tm->tm_year = u16s[5] + u16s[6]; // Sum up the year pair.
-  return true;
+  return out_tm->tm_mon;
 }
